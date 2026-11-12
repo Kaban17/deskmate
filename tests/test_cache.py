@@ -1,5 +1,7 @@
 import logging
 
+import pytest
+
 from deskmate.cache.context import ContextStore
 from deskmate.cache.dedupe import UpdateDeduper
 from deskmate.cache.llm_cache import LLMCache
@@ -79,3 +81,16 @@ async def test_everything_fails_open(broken_redis, caplog):
         if r.levelno == logging.WARNING and r.name.startswith("deskmate.cache")
     ]
     assert len(warnings) == 6
+
+
+@pytest.mark.parametrize(
+    "raw", ["not json", '{"role": "user"}', "[1, 2]", '[{"role": "user", "text": "x"}]']
+)
+async def test_corrupt_context_is_a_miss_with_a_warning(redis, caplog, raw):
+    await redis.set("ctx:1", raw)
+    with caplog.at_level(logging.WARNING, logger="deskmate.cache"):
+        assert await ContextStore(redis, 20, 60).get(1) is None
+    assert any(
+        r.levelno == logging.WARNING and r.name == "deskmate.cache.context"
+        for r in caplog.records
+    )

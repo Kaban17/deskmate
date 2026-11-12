@@ -30,7 +30,12 @@ class ContextStore:
             return None
         if raw is None:
             return None
-        return [ChatMessage(**item) for item in json.loads(raw)]
+        try:
+            return [ChatMessage(**item) for item in json.loads(raw)]
+        except (ValueError, TypeError):
+            # A corrupt or old-shape value is a miss: the window is rebuilt from Postgres.
+            logger.warning("context value unreadable for dialog %s", dialog_id, exc_info=True)
+            return None
 
     async def set(self, dialog_id: int, messages: list[ChatMessage]) -> None:
         recent = messages[-self._window :]
