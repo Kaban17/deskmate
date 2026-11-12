@@ -2,6 +2,7 @@ import asyncio
 from pathlib import Path
 
 import fakeredis.aioredis
+import httpx
 import pytest
 import pytest_asyncio
 from alembic.config import Config
@@ -16,6 +17,7 @@ from deskmate.chat.service import ChatService, utcnow
 from deskmate.config import Settings
 from deskmate.db.session import make_engine, make_session_factory
 from deskmate.llm.fake import FakeLLMClient
+from deskmate.main import create_app
 
 
 def _upgrade(url: str) -> None:
@@ -95,3 +97,39 @@ def make_service(session_factory, settings, redis):
         )
 
     return _make
+
+
+@pytest.fixture
+def fake_llm():
+    return FakeLLMClient()
+
+
+async def _client(app):
+    # ASGITransport does not run the ASGI lifespan, so enter it explicitly.
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            yield c
+
+
+@pytest_asyncio.fixture
+async def client(settings, fake_llm, redis, engine):
+    app = create_app(settings, llm=fake_llm, redis=redis, engine=engine)
+    async for c in _client(app):
+        yield c
+
+
+@pytest_asyncio.fixture
+async def client_with_broken_redis(settings, fake_llm, broken_redis, engine):
+    app = create_app(settings, llm=fake_llm, redis=broken_redis, engine=engine)
+    async for c in _client(app):
+        yield c
+
+
+@pytest_asyncio.fixture
+async def client_with_dead_postgres(settings, fake_llm, redis):
+    dead = make_engine("postgresql+asyncpg://x:x@127.0.0.1:1/x")
+    app = create_app(settings, llm=fake_llm, redis=redis, engine=dead)
+    async for c in _client(app):
+        yield c
+    await dead.dispose()
