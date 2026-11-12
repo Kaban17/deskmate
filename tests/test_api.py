@@ -1,3 +1,5 @@
+import logging
+
 import pytest
 from sqlalchemy import select
 
@@ -52,10 +54,14 @@ async def test_chat_accepts_exactly_4000_characters_and_trims(client, fake_llm):
     assert r.status_code == 200 and len(fake_llm.calls[0][1][-1].content) == 4000
 
 
-async def test_chat_llm_failure_is_502(client, fake_llm):
+async def test_chat_llm_failure_is_502(client, fake_llm, caplog):
     fake_llm.fail = True
     r = await client.post("/chat", json={"user_id": "a", "text": "x"}, headers=H)
     assert r.status_code == 502 and r.json() == {"detail": "LLM unavailable"}
+    assert any(
+        rec.levelno == logging.WARNING and rec.name == "deskmate.api.chat" and rec.exc_info
+        for rec in caplog.records
+    )
 
 
 async def test_health_ok(client):

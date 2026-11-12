@@ -1,3 +1,4 @@
+import logging
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -5,6 +6,8 @@ from pydantic import BaseModel, Field, field_validator
 
 from deskmate.api.deps import ChatServiceDep, require_api_key
 from deskmate.llm.base import LLMError
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -34,6 +37,7 @@ async def chat(body: ChatRequest, service: ChatServiceDep) -> ChatResponse:
     try:
         result = await service.handle_message(f"api:{body.user_id}", body.text)
     except LLMError:
+        logger.warning("LLM call failed", exc_info=True)
         raise HTTPException(status_code=502, detail="LLM unavailable") from None
     return ChatResponse(
         answer=result.text,
