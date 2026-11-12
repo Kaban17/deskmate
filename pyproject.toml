@@ -1,7 +1,7 @@
 [project]
 name = "deskmate"
 version = "0.1.0"
-description = "Add your description here"
+description = "AI helpdesk agent for internal company services"
 readme = "README.md"
 authors = [
     { name = "Kaban17", email = "kaban1628@gmail.com" }
