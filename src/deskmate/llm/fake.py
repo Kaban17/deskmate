@@ -19,7 +19,7 @@ class FakeLLMClient:
         self.calls: list[tuple[str, list[ChatMessage]]] = []
 
     async def complete(self, system: str, messages: list[ChatMessage]) -> LLMResponse:
-        self.calls.append((system, messages))
+        self.calls.append((system, list(messages)))
         if self.delay:
             await asyncio.sleep(self.delay)
         if self.fail:

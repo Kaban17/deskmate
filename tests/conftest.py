@@ -10,7 +10,12 @@ from sqlalchemy import text
 from testcontainers.community.postgres import PostgresContainer
 
 from alembic import command
+from deskmate.cache.context import ContextStore
+from deskmate.cache.llm_cache import LLMCache
+from deskmate.chat.service import ChatService, utcnow
+from deskmate.config import Settings
 from deskmate.db.session import make_engine, make_session_factory
+from deskmate.llm.fake import FakeLLMClient
 
 
 def _upgrade(url: str) -> None:
@@ -67,3 +72,26 @@ class _BrokenRedis:
 @pytest.fixture
 def broken_redis():
     return _BrokenRedis()
+
+
+@pytest.fixture
+def settings():
+    return Settings(api_key="test-key", _env_file=None)
+
+
+@pytest.fixture
+def make_service(session_factory, settings, redis):
+    default_redis = redis
+
+    def _make(llm=None, redis=None, clock=None):
+        client = redis if redis is not None else default_redis
+        return ChatService(
+            session_factory,
+            llm or FakeLLMClient(),
+            ContextStore(client, settings.context_window, settings.context_ttl_s),
+            LLMCache(client, settings.cache_ttl_s),
+            settings,
+            clock or utcnow,
+        )
+
+    return _make
