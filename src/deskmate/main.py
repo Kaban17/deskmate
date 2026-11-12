@@ -1,12 +1,15 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from aiogram import Bot
 from fastapi import FastAPI
 from redis.asyncio import Redis
 from sqlalchemy.ext.asyncio import AsyncEngine
 
 from deskmate.api import chat, health
+from deskmate.bot.setup import build_bot, build_dispatcher, start_bot, stop_bot, webhook_router
 from deskmate.cache.context import ContextStore
+from deskmate.cache.dedupe import UpdateDeduper
 from deskmate.cache.llm_cache import LLMCache
 from deskmate.chat.service import ChatService
 from deskmate.config import Settings, get_settings
@@ -26,6 +29,7 @@ def create_app(
     llm: LLMClient | None = None,
     redis: Redis | None = None,
     engine: AsyncEngine | None = None,
+    bot: Bot | None = None,
 ) -> FastAPI:
     @asynccontextmanager
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
@@ -54,7 +58,33 @@ def create_app(
                 LLMCache(redis_client, cfg.cache_ttl_s),
                 cfg,
             )
-            yield
+            bot_started = False
+            if cfg.bot_mode != "off":
+                service = app.state.chat_service
+                if bot is None:
+                    app.state.bot, app.state.dp = build_bot(cfg, service)
+                    app.state.bot_owned = True
+                else:
+                    app.state.bot, app.state.dp = bot, build_dispatcher(service)
+                    app.state.bot_owned = False
+                if cfg.bot_mode == "webhook":
+                    deduper = UpdateDeduper(redis_client, cfg.dedupe_ttl_s)
+                    app.include_router(
+                        webhook_router(
+                            app.state.bot, app.state.dp, deduper, cfg.webhook_secret or ""
+                        )
+                    )
+                try:
+                    await start_bot(app, cfg)
+                except BaseException:
+                    await stop_bot(app)
+                    raise
+                bot_started = True
+            try:
+                yield
+            finally:
+                if bot_started:
+                    await stop_bot(app)
         finally:
             if own_redis:
                 await redis_client.aclose()
