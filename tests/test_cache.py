@@ -91,6 +91,5 @@ async def test_corrupt_context_is_a_miss_with_a_warning(redis, caplog, raw):
     with caplog.at_level(logging.WARNING, logger="deskmate.cache"):
         assert await ContextStore(redis, 20, 60).get(1) is None
     assert any(
-        r.levelno == logging.WARNING and r.name == "deskmate.cache.context"
-        for r in caplog.records
+        r.levelno == logging.WARNING and r.name == "deskmate.cache.context" for r in caplog.records
     )

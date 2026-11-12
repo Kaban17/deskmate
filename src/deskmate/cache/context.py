@@ -32,7 +32,7 @@ class ContextStore:
             return None
         try:
             return [ChatMessage(**item) for item in json.loads(raw)]
-        except (ValueError, TypeError):
+        except ValueError, TypeError:
             # A corrupt or old-shape value is a miss: the window is rebuilt from Postgres.
             logger.warning("context value unreadable for dialog %s", dialog_id, exc_info=True)
             return None
