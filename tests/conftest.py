@@ -1,9 +1,11 @@
 import asyncio
 from pathlib import Path
 
+import fakeredis.aioredis
 import pytest
 import pytest_asyncio
 from alembic.config import Config
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import text
 from testcontainers.community.postgres import PostgresContainer
 
@@ -43,3 +45,25 @@ async def session_factory(engine):
 async def session(session_factory):
     async with session_factory() as s:
         yield s
+
+
+@pytest_asyncio.fixture
+async def redis():
+    client = fakeredis.aioredis.FakeRedis(decode_responses=True)
+    yield client
+    await client.aclose()
+
+
+class _BrokenRedis:
+    """Stands in for a Redis client whose every call fails."""
+
+    def __getattr__(self, name):
+        async def fail(*args, **kwargs):
+            raise RedisConnectionError("redis is down")
+
+        return fail
+
+
+@pytest.fixture
+def broken_redis():
+    return _BrokenRedis()
