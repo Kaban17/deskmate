@@ -7,12 +7,13 @@ import httpx
 import pytest
 import pytest_asyncio
 from aiogram.methods import SendMessage
+from aiogram.types import Update
 from fastapi import FastAPI
 from sqlalchemy import select
 
 from deskmate.bot import texts
 from deskmate.bot.handlers import Handlers, split_reply
-from deskmate.bot.setup import start_bot, stop_bot, webhook_router
+from deskmate.bot.setup import build_bot, start_bot, stop_bot, webhook_router
 from deskmate.cache.dedupe import UpdateDeduper
 from deskmate.config import Settings
 from deskmate.db.models import Message, User
@@ -324,3 +325,43 @@ async def test_shutdown_wait_is_bounded_and_logged(monkeypatch, caplog):
     assert any("1 webhook updates still running" in r.getMessage() for r in caplog.records)
     bot.session.close.assert_awaited_once()
     stuck.cancel()
+
+
+def tg_update(update_id, **message):
+    return {
+        "update_id": update_id,
+        "message": {
+            "message_id": update_id,
+            "date": 1700000000,
+            "chat": {"id": 5, "type": "private"},
+            "from": {"id": 5, "is_bot": False, "first_name": "A"},
+            **message,
+        },
+    }
+
+
+async def test_dispatcher_routes_each_kind_of_message(make_service, fake_llm):
+    cfg = Settings(api_key="k", bot_mode="polling", telegram_bot_token="42:TEST", _env_file=None)
+    bot, dp = build_bot(cfg, make_service(fake_llm))
+    # Every API call goes through the session; nothing reaches Telegram.
+    bot.session.make_request = AsyncMock(return_value=True)
+    try:
+        for i, message in enumerate(
+            [
+                {"text": "/start"},
+                {"text": "/new"},
+                {"text": "привет"},
+                {"photo": [{"file_id": "f", "file_unique_id": "u", "width": 1, "height": 1}]},
+            ],
+            start=1,
+        ):
+            await dp.feed_update(bot, Update.model_validate(tg_update(i, **message)))
+    finally:
+        await bot.session.close()
+    sent = [
+        call.args[1].text
+        for call in bot.session.make_request.await_args_list
+        if isinstance(call.args[1], SendMessage)
+    ]
+    assert sent == [texts.START, texts.NEW_DIALOG, "ответ", texts.NON_TEXT]
+    assert [m[-1].content for _, m in fake_llm.calls] == ["привет"]
