@@ -186,3 +186,9 @@ async def test_blank_cached_answer_is_a_miss(make_service, settings, redis, stor
     llm = FakeLLMClient(reply="ответ")
     r = await make_service(llm).handle_message("tg:1", "x")
     assert (r.text, r.cached, len(llm.calls)) == ("ответ", False, 1)
+
+
+def test_unknown_prompt_version_fails_at_construction(make_service, settings):
+    settings.prompt_version = "v999"
+    with pytest.raises(FileNotFoundError):
+        make_service()

@@ -44,6 +44,8 @@ class ChatService:
         self._context = context
         self._cache = cache
         self._settings = settings
+        # Loaded once so an unknown PROMPT_VERSION fails at startup, not on the first message.
+        self._system_prompt = load_prompt(settings.prompt_version)
         self._clock = clock
         self._locks: defaultdict[str, asyncio.Lock] = defaultdict(asyncio.Lock)
 
@@ -97,7 +99,7 @@ class ChatService:
         model = settings.llm_model
         input_tokens = output_tokens = None
         if answer is None:
-            response = await self._llm.complete(load_prompt(settings.prompt_version), window)
+            response = await self._llm.complete(self._system_prompt, window)
             answer = response.text
             model = response.model
             input_tokens, output_tokens = response.input_tokens, response.output_tokens

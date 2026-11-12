@@ -96,3 +96,11 @@ async def test_startup_fails_without_llm_and_api_key(settings, redis):
 
 
 DEAD_URL = "postgresql+asyncpg://x:x@127.0.0.1:1/x"
+
+
+async def test_startup_fails_with_unknown_prompt_version(settings, fake_llm, redis, engine):
+    settings.prompt_version = "v999"
+    app = create_app(settings, llm=fake_llm, redis=redis, engine=engine)
+    with pytest.raises(FileNotFoundError):
+        async with app.router.lifespan_context(app):
+            pass
