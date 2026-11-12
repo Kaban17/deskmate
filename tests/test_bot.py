@@ -6,6 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 import httpx
 import pytest
 import pytest_asyncio
+from aiogram.methods import SendMessage
 from fastapi import FastAPI
 from sqlalchemy import select
 
@@ -284,3 +285,38 @@ async def test_messages_from_one_user_are_answered_in_arrival_order(handlers, fa
     assert answered == ["ответ на первый", "ответ на второй"]
     rows = (await session.scalars(select(Message.content).order_by(Message.id))).all()
     assert rows == ["первый", "ответ на первый", "второй", "ответ на второй"]
+
+
+def webhook_settings():
+    return Settings(
+        api_key="k",
+        bot_mode="webhook",
+        telegram_bot_token="1:x",
+        webhook_base_url="https://example.test/",
+        webhook_secret="s3cret",
+        _env_file=None,
+    )
+
+
+async def test_shutdown_waits_for_in_flight_webhook_updates(fake_llm, redis, engine):
+    fake_llm.delay = 0.2
+    bot = AsyncMock()  # awaiting bot(method) is how aiogram sends a reply
+    app = create_app(webhook_settings(), llm=fake_llm, redis=redis, engine=engine, bot=bot)
+    async with app.router.lifespan_context(app):
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as c:
+            r = await c.post("/telegram/webhook", json=UPDATE, headers=SECRET)
+            assert r.status_code == 200
+    sent = [call.args[0] for call in bot.await_args_list]
+    assert [m.text for m in sent if isinstance(m, SendMessage)] == ["ответ"]
+
+
+async def test_shutdown_wait_is_bounded_and_logged(monkeypatch, caplog):
+    monkeypatch.setattr("deskmate.bot.setup.SHUTDOWN_GRACE_S", 0.05)
+    stuck = asyncio.create_task(asyncio.Event().wait())
+    bot = mock_bot()
+    app = SimpleNamespace(state=SimpleNamespace(bot=bot, bot_owned=True, webhook_tasks={stuck}))
+    await stop_bot(app)
+    assert any("1 webhook updates still running" in r.getMessage() for r in caplog.records)
+    bot.session.close.assert_awaited_once()
+    stuck.cancel()

@@ -69,9 +69,14 @@ def create_app(
                     app.state.bot_owned = False
                 if cfg.bot_mode == "webhook":
                     deduper = UpdateDeduper(redis_client, cfg.dedupe_ttl_s)
+                    app.state.webhook_tasks = set()
                     app.include_router(
                         webhook_router(
-                            app.state.bot, app.state.dp, deduper, cfg.webhook_secret or ""
+                            app.state.bot,
+                            app.state.dp,
+                            deduper,
+                            cfg.webhook_secret or "",
+                            app.state.webhook_tasks,
                         )
                     )
                 try:

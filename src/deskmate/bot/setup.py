@@ -15,6 +15,8 @@ from deskmate.config import Settings
 logger = logging.getLogger(__name__)
 
 SECRET_HEADER = "X-Telegram-Bot-Api-Secret-Token"
+# How long shutdown waits for webhook updates that are still being processed.
+SHUTDOWN_GRACE_S = 10.0
 
 
 def build_dispatcher(service: ChatService) -> Dispatcher:
@@ -28,10 +30,18 @@ def build_bot(settings: Settings, service: ChatService) -> tuple[Bot, Dispatcher
     return Bot(settings.telegram_bot_token), build_dispatcher(service)
 
 
-def webhook_router(bot: Bot, dp: Dispatcher, deduper: UpdateDeduper, secret: str) -> APIRouter:
+def webhook_router(
+    bot: Bot,
+    dp: Dispatcher,
+    deduper: UpdateDeduper,
+    secret: str,
+    tasks: set[asyncio.Task[None]] | None = None,
+) -> APIRouter:
     router = APIRouter()
-    # Strong references: the event loop keeps only weak ones to running tasks.
-    tasks: set[asyncio.Task[None]] = set()
+    # Strong references: the event loop keeps only weak ones to running tasks. The app passes
+    # its own set so that shutdown can wait for the updates still being processed.
+    if tasks is None:
+        tasks = set()
 
     def _finished(task: asyncio.Task[None]) -> None:
         tasks.discard(task)
@@ -71,6 +81,17 @@ async def stop_bot(app: FastAPI) -> None:
         task.cancel()
         with contextlib.suppress(asyncio.CancelledError):
             await task
+    # Updates already answered 200 and marked as seen are never resent, so let them finish
+    # before the bot session, Redis and the engine are closed.
+    pending_updates: set[asyncio.Task[None]] = getattr(app.state, "webhook_tasks", set())
+    if pending_updates:
+        _, still_running = await asyncio.wait(set(pending_updates), timeout=SHUTDOWN_GRACE_S)
+        if still_running:
+            logger.warning(
+                "%d webhook updates still running after %.0f s at shutdown",
+                len(still_running),
+                SHUTDOWN_GRACE_S,
+            )
     # The webhook stays registered on purpose: a restart should not drop updates.
     if app.state.bot_owned:
         await app.state.bot.session.close()
