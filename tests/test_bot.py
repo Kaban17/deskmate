@@ -196,7 +196,9 @@ async def _app_client(app):
             yield c
 
 
-async def test_app_in_webhook_mode_registers_webhook_and_accepts_updates(fake_llm, redis, engine):
+async def test_app_in_webhook_mode_registers_webhook_and_accepts_updates(
+    fake_llm, redis, engine, session_factory
+):
     cfg = Settings(
         api_key="k",
         bot_mode="webhook",
@@ -298,7 +300,9 @@ def webhook_settings():
     )
 
 
-async def test_shutdown_waits_for_in_flight_webhook_updates(fake_llm, redis, engine):
+async def test_shutdown_waits_for_in_flight_webhook_updates(
+    fake_llm, redis, engine, session_factory
+):
     fake_llm.delay = 0.2
     bot = AsyncMock()  # awaiting bot(method) is how aiogram sends a reply
     app = create_app(webhook_settings(), llm=fake_llm, redis=redis, engine=engine, bot=bot)
