@@ -6,9 +6,10 @@ import pytest
 from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import select
 
+from deskmate.cache.llm_cache import LLMCache
 from deskmate.db import repo
 from deskmate.db.models import Message
-from deskmate.llm.base import LLMError
+from deskmate.llm.base import ChatMessage, LLMError
 from deskmate.llm.fake import FakeLLMClient
 from deskmate.prompts import load_prompt
 
@@ -176,3 +177,12 @@ async def test_reset_deletes_the_context_key(make_service, redis):
     assert await redis.exists(f"ctx:{r.dialog_id}")
     await svc.reset_dialog("tg:1")
     assert not await redis.exists(f"ctx:{r.dialog_id}")
+
+
+@pytest.mark.parametrize("stored", ["", "  \n"])
+async def test_blank_cached_answer_is_a_miss(make_service, settings, redis, stored):
+    key = LLMCache.key(settings.llm_model, settings.prompt_version, [ChatMessage("user", "x")])
+    await redis.set(key, stored)
+    llm = FakeLLMClient(reply="ответ")
+    r = await make_service(llm).handle_message("tg:1", "x")
+    assert (r.text, r.cached, len(llm.calls)) == ("ответ", False, 1)

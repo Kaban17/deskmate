@@ -27,6 +27,9 @@ class ClaudeClient:
         except anthropic.APIError as exc:
             raise LLMError(str(exc)) from exc
         text = "".join(b.text for b in response.content if b.type == "text")
+        if not text.strip():
+            # An empty assistant turn cannot be sent to Telegram or back to the Messages API.
+            raise LLMError("the model returned no text")
         return LLMResponse(
             text, response.model, response.usage.input_tokens, response.usage.output_tokens
         )

@@ -91,6 +91,8 @@ class ChatService:
         started = time.monotonic()
         key = LLMCache.key(settings.llm_model, settings.prompt_version, window)
         answer = await self._cache.get(key)
+        if answer is not None and not answer.strip():
+            answer = None  # a blank answer is never valid, so treat it as a miss
         cached = answer is not None
         model = settings.llm_model
         input_tokens = output_tokens = None

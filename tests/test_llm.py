@@ -84,3 +84,14 @@ def test_load_prompt_v1_is_the_spec_text():
 def test_load_prompt_unknown_version():
     with pytest.raises(FileNotFoundError):
         load_prompt("v999")
+
+
+@pytest.mark.parametrize("texts", [(), ("  ", "\n")])
+async def test_claude_client_rejects_an_answer_without_text(texts):
+    sdk = stub_sdk(text_blocks=texts)
+    tool_use = MagicMock()
+    tool_use.type = "tool_use"
+    tool_use.text = "not an answer"
+    sdk.messages.create.return_value.content.insert(0, tool_use)
+    with pytest.raises(LLMError):
+        await ClaudeClient("k", "m", 10, client=sdk).complete("s", [ChatMessage("user", "x")])
