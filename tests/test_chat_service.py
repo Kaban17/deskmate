@@ -3,6 +3,7 @@ import time
 from datetime import UTC, datetime, timedelta
 
 import pytest
+from redis.exceptions import ConnectionError as RedisConnectionError
 from sqlalchemy import select
 
 from deskmate.db import repo
@@ -127,3 +128,51 @@ async def test_different_users_are_not_blocked_by_each_other(make_service):
     start = time.monotonic()
     await asyncio.gather(svc.handle_message("tg:1", "a"), svc.handle_message("tg:2", "b"))
     assert time.monotonic() - start < 0.35
+
+
+async def test_failed_turn_is_in_the_next_window(make_service):
+    llm = FakeLLMClient(reply=lambda msgs: "a" + msgs[-1].content[1:])
+    svc = make_service(llm)
+    await svc.handle_message("tg:1", "q1")
+    llm.fail = True
+    with pytest.raises(LLMError):
+        await svc.handle_message("tg:1", "q2")
+    llm.fail = False
+    await svc.handle_message("tg:1", "q3")
+    assert [m.content for m in llm.calls[-1][1]] == ["q1", "a1", "q2", "q3"]
+
+
+class _RedisWithFailingSet:
+    """A working Redis whose `set` can be switched to fail."""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self.fail_set = False
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    async def set(self, *args, **kwargs):
+        if self.fail_set:
+            raise RedisConnectionError("set failed")
+        return await self._inner.set(*args, **kwargs)
+
+
+async def test_failed_context_write_does_not_leave_a_stale_window(make_service, redis):
+    flaky = _RedisWithFailingSet(redis)
+    llm = FakeLLMClient(reply=lambda msgs: "a" + msgs[-1].content[1:])
+    svc = make_service(llm, flaky)
+    await svc.handle_message("tg:1", "q1")
+    flaky.fail_set = True
+    await svc.handle_message("tg:1", "q2")
+    flaky.fail_set = False
+    await svc.handle_message("tg:1", "q3")
+    assert [m.content for m in llm.calls[-1][1]] == ["q1", "a1", "q2", "a2", "q3"]
+
+
+async def test_reset_deletes_the_context_key(make_service, redis):
+    svc = make_service(FakeLLMClient(reply="ок"))
+    r = await svc.handle_message("tg:1", "раз")
+    assert await redis.exists(f"ctx:{r.dialog_id}")
+    await svc.reset_dialog("tg:1")
+    assert not await redis.exists(f"ctx:{r.dialog_id}")

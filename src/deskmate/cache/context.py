@@ -1,3 +1,4 @@
+import contextlib
 import json
 import logging
 
@@ -40,6 +41,10 @@ class ContextStore:
             await self._redis.set(self._key(dialog_id), payload, ex=self._ttl_s)
         except RedisError:
             logger.warning("context set failed for dialog %s", dialog_id, exc_info=True)
+            # An old window left in place would be one exchange behind Postgres, so drop it.
+            # If Redis is down this fails too; the warning above already covers it.
+            with contextlib.suppress(RedisError):
+                await self._redis.delete(self._key(dialog_id))
 
     async def delete(self, dialog_id: int) -> None:
         try:

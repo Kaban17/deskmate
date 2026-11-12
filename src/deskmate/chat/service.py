@@ -76,6 +76,16 @@ class ChatService:
             dialog_id = dialog.id
             await session.commit()
 
+        try:
+            return await self._answer(dialog_id, text)
+        except BaseException:
+            # The user message is in Postgres but not in the cached window; drop the window so
+            # the next turn rebuilds it from Postgres. Cleanup only: the error always propagates.
+            await self._context.delete(dialog_id)
+            raise
+
+    async def _answer(self, dialog_id: int, text: str) -> ChatResult:
+        settings = self._settings
         window = await self._build_window(dialog_id, text)
 
         started = time.monotonic()
