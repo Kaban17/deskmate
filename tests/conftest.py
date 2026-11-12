@@ -77,8 +77,29 @@ def broken_redis():
 
 
 @pytest.fixture
-def settings():
-    return Settings(api_key="test-key", _env_file=None)
+def hostile_env(monkeypatch):
+    """A shell that exports bot and LLM settings, as a developer's might."""
+    for name, value in {
+        "BOT_MODE": "polling",
+        "TELEGRAM_BOT_TOKEN": "1:x",
+        "LLM_MODEL": "other-model",
+        "CONTEXT_WINDOW": "3",
+        "PROMPT_VERSION": "v999",
+    }.items():
+        monkeypatch.setenv(name, value)
+
+
+@pytest.fixture
+def clean_env(monkeypatch):
+    """Remove every variable Settings reads, so the shell cannot change what a test builds."""
+    for name in Settings.model_fields:
+        monkeypatch.delenv(name.upper(), raising=False)
+        monkeypatch.delenv(name, raising=False)
+
+
+@pytest.fixture
+def settings(clean_env):
+    return Settings(api_key="test-key", bot_mode="off", _env_file=None)
 
 
 @pytest.fixture

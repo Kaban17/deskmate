@@ -4,7 +4,7 @@ from pydantic import ValidationError
 from deskmate.config import Settings
 
 
-def test_defaults(monkeypatch):
+def test_defaults(hostile_env, clean_env, monkeypatch):
     monkeypatch.setenv("API_KEY", "k")
     s = Settings(_env_file=None)
     assert s.llm_model == "claude-sonnet-5-5"
@@ -40,3 +40,12 @@ def test_api_key_must_not_be_blank(monkeypatch, value):
     monkeypatch.setenv("API_KEY", value)
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+def test_settings_fixture_ignores_the_environment(hostile_env, settings):
+    assert settings.bot_mode == "off" and settings.telegram_bot_token is None
+    assert (settings.llm_model, settings.context_window, settings.prompt_version) == (
+        "claude-sonnet-5-5",
+        20,
+        "v1",
+    )
