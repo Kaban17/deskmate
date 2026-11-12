@@ -1,3 +1,4 @@
+import asyncio
 import logging
 
 from aiogram import F, Router
@@ -27,6 +28,8 @@ class Handlers:
 
     def __init__(self, service: ChatService) -> None:
         self._service = service
+        # Strong references: the event loop keeps only weak ones to running tasks.
+        self._typing_tasks: set[asyncio.Task[None]] = set()
 
     async def on_start(self, message: Message) -> None:
         await message.answer(texts.START)
@@ -47,8 +50,12 @@ class Handlers:
         if len(text) > texts.MAX_INPUT:
             await message.answer(texts.TOO_LONG)
             return
+        # Fire and forget: an awaited typing call here would let a later message from the
+        # same user reach the per-user lock first, and its failure must not cost the answer.
+        task = asyncio.create_task(_send_typing(message))
+        self._typing_tasks.add(task)
+        task.add_done_callback(self._typing_tasks.discard)
         try:
-            await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
             result = await self._service.handle_message(
                 _external_id(message), text, message.from_user.full_name
             )
@@ -61,6 +68,14 @@ class Handlers:
 
     async def on_other(self, message: Message) -> None:
         await message.answer(texts.NON_TEXT)
+
+
+async def _send_typing(message: Message) -> None:
+    """Best-effort typing indicator; never raises."""
+    try:
+        await message.bot.send_chat_action(chat_id=message.chat.id, action="typing")
+    except Exception:
+        logger.debug("typing action failed", exc_info=True)
 
 
 def _external_id(message: Message) -> str:

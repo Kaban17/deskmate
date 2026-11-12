@@ -14,7 +14,7 @@ from deskmate.bot.handlers import Handlers, split_reply
 from deskmate.bot.setup import start_bot, stop_bot, webhook_router
 from deskmate.cache.dedupe import UpdateDeduper
 from deskmate.config import Settings
-from deskmate.db.models import User
+from deskmate.db.models import Message, User
 from deskmate.main import create_app
 
 SECRET = {"X-Telegram-Bot-Api-Secret-Token": "s3cret"}
@@ -252,3 +252,35 @@ async def test_polling_mode_starts_and_stops_polling():
     await stop_bot(app)
     assert task.cancelled()
     bot.session.close.assert_awaited_once()
+
+
+async def test_failed_typing_action_does_not_block_the_answer(handlers, fake_llm):
+    msg = fake_message(text="вопрос")
+    msg.bot.send_chat_action.side_effect = RuntimeError("telegram is down")
+    await handlers.on_text(msg)
+    msg.answer.assert_awaited_once_with("ответ")
+
+
+async def test_messages_from_one_user_are_answered_in_arrival_order(handlers, fake_llm, session):
+    fake_llm.reply = lambda msgs: f"ответ на {msgs[-1].content}"
+    answered: list[str] = []
+
+    def tracked(text, typing_delay):
+        msg = fake_message(text=text, user_id=7)
+
+        async def typing(*args, **kwargs):
+            await asyncio.sleep(typing_delay)
+
+        async def answer(reply):
+            answered.append(reply)
+
+        msg.bot.send_chat_action.side_effect = typing
+        msg.answer.side_effect = answer
+        return msg
+
+    await asyncio.gather(
+        handlers.on_text(tracked("первый", 0.1)), handlers.on_text(tracked("второй", 0))
+    )
+    assert answered == ["ответ на первый", "ответ на второй"]
+    rows = (await session.scalars(select(Message.content).order_by(Message.id))).all()
+    assert rows == ["первый", "ответ на первый", "второй", "ответ на второй"]
