@@ -22,7 +22,7 @@ async def test_chat_user_is_namespaced(client, session):
     assert (await session.scalars(select(User.external_id))).all() == ["api:alice"]
 
 
-@pytest.mark.parametrize("headers", [{}, {"X-API-Key": "wrong"}])
+@pytest.mark.parametrize("headers", [{}, {"X-API-Key": ""}, {"X-API-Key": "wrong"}])
 async def test_chat_requires_api_key(client, headers):
     assert (
         await client.post("/chat", json={"user_id": "a", "text": "x"}, headers=headers)

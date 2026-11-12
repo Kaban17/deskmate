@@ -39,8 +39,10 @@ def create_app(
         db_engine = engine if engine is not None else make_engine(cfg.database_url)
         redis_client = redis if redis is not None else build_redis(cfg.redis_url)
         try:
-            llm_client = llm or ClaudeClient(
-                cfg.anthropic_api_key, cfg.llm_model, cfg.llm_max_tokens
+            llm_client = (
+                llm
+                if llm is not None
+                else ClaudeClient(cfg.anthropic_api_key, cfg.llm_model, cfg.llm_max_tokens)
             )
             app.state.settings = cfg
             app.state.engine = db_engine

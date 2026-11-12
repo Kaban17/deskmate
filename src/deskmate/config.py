@@ -1,7 +1,7 @@
 from functools import lru_cache
 from typing import Literal, Self
 
-from pydantic import model_validator
+from pydantic import field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -24,6 +24,13 @@ class Settings(BaseSettings):
     cache_ttl_s: int = 3600
     dedupe_ttl_s: int = 3600
     dialog_idle_minutes: int = 30
+
+    @field_validator("api_key")
+    @classmethod
+    def _api_key_not_blank(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("API_KEY must not be empty")
+        return value
 
     @model_validator(mode="after")
     def _check_bot_settings(self) -> Self:

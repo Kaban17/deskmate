@@ -33,3 +33,10 @@ def test_bot_mode_requires_its_settings(monkeypatch, mode, missing):
     monkeypatch.delenv(missing)
     with pytest.raises(ValidationError):
         Settings(_env_file=None)
+
+
+@pytest.mark.parametrize("value", ["", "   "])
+def test_api_key_must_not_be_blank(monkeypatch, value):
+    monkeypatch.setenv("API_KEY", value)
+    with pytest.raises(ValidationError):
+        Settings(_env_file=None)
