@@ -1,3 +1,4 @@
+import logging
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -9,6 +10,9 @@ from deskmate.db.models import Dialog
 
 T0 = datetime(2026, 1, 1, 12, 0, tzinfo=UTC)
 IDLE = timedelta(minutes=30)
+
+# created at collection time, before the engine fixture runs the migration
+_PRE_EXISTING_LOGGER = logging.getLogger("deskmate.db.repo")
 
 
 @pytest_asyncio.fixture
@@ -89,3 +93,7 @@ async def test_add_message_uses_explicit_now(session, dialog):
     m = await repo.add_message(session, dialog.id, "user", "hi", now=later)
     await session.refresh(dialog)
     assert m.created_at == later and dialog.last_message_at == later
+
+
+async def test_migration_does_not_disable_existing_loggers(engine):
+    assert _PRE_EXISTING_LOGGER.disabled is False
